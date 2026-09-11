@@ -1,41 +1,3 @@
-# from django.urls import path
-
-# from .views import (
-#     LabourListCreateView,
-#     LabourDetailView,
-#     LabourEntryListCreateView,
-#     LabourEntryDetailView,
-# )
-
-
-# urlpatterns = [
-
-#     path(
-#         "sites/<int:site_id>/",
-#         LabourListCreateView.as_view(),
-#         name="labour-list-create",
-#     ),
-
-#     path(
-#         "<int:pk>/",
-#         LabourDetailView.as_view(),
-#         name="labour-detail",
-#     ),
-
-#     path(
-#         "sites/<int:site_id>/entries/",
-#         LabourEntryListCreateView.as_view(),
-#         name="labour-entry-list-create",
-#     ),
-
-#     path(
-#         "entries/<int:pk>/",
-#         LabourEntryDetailView.as_view(),
-#         name="labour-entry-detail",
-#     ),
-# ]
-
-
 from django.urls import path
 
 from .views import (
@@ -46,7 +8,7 @@ from .views import (
     LabourAssignmentOnDateView,
     LabourSiteEntryListCreateView,
     LabourEntryDetailView,
-)
+    DailyWorkView,)
 
 
 urlpatterns = [
@@ -103,5 +65,11 @@ urlpatterns = [
         "entries/<int:pk>/",
         LabourEntryDetailView.as_view(),
         name="labour-entry-detail",
+    ),
+    
+    path(
+        "sites/<int:site_id>/daily-work/",
+        DailyWorkView.as_view(),
+        name="daily-work",
     ),
 ]
