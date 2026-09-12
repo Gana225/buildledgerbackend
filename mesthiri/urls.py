@@ -8,6 +8,8 @@ from .views import (
     MesthiriEntryDetailView,
     MesthiriListCreateView,
     MesthiriSiteEntryListCreateView,
+    MesthiriPaymentListCreateView,
+    MesthiriAccountView
 )
 
 urlpatterns = [
@@ -18,4 +20,15 @@ urlpatterns = [
     path("<int:mesthiri_id>/assignment-on/", MesthiriAssignmentOnDateView.as_view(), name="mesthiri-assignment-on-date"),
     path("sites/<int:site_id>/entries/", MesthiriSiteEntryListCreateView.as_view(), name="mesthiri-site-entry-list-create"),
     path("entries/<int:pk>/", MesthiriEntryDetailView.as_view(), name="mesthiri-entry-detail"),
+    path(
+        "sites/<int:site_id>/mesthiri/<int:mesthiri_id>/payments/",
+        MesthiriPaymentListCreateView.as_view(),
+        name="mesthiri-payment-list-create",
+    ),
+
+    path(
+        "sites/<int:site_id>/mesthiri/<int:mesthiri_id>/account/",
+        MesthiriAccountView.as_view(),
+        name="mesthiri-account",
+    ),
 ]

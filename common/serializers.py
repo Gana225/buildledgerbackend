@@ -74,10 +74,7 @@ class DailyLabourSerializer(serializers.Serializer):
         decimal_places=2,
     )
 
-    paid = serializers.DecimalField(
-        max_digits=14,
-        decimal_places=2,
-    )
+    
 
 
 class DailyMesthiriSerializer(serializers.Serializer):
@@ -88,10 +85,7 @@ class DailyMesthiriSerializer(serializers.Serializer):
         decimal_places=2,
     )
 
-    paid = serializers.DecimalField(
-        max_digits=14,
-        decimal_places=2,
-    )
+    
 
 
 class DailyMaterialSerializer(serializers.Serializer):

@@ -8,7 +8,10 @@ from .views import (
     LabourAssignmentOnDateView,
     LabourSiteEntryListCreateView,
     LabourEntryDetailView,
-    DailyWorkView,)
+    DailyWorkView,
+    LabourPaymentListCreateView,
+    LabourAccountView,
+)
 
 
 urlpatterns = [
@@ -71,5 +74,17 @@ urlpatterns = [
         "sites/<int:site_id>/daily-work/",
         DailyWorkView.as_view(),
         name="daily-work",
+    ),
+    
+    path(
+        "sites/<int:site_id>/labour/<int:labour_id>/payments/",
+        LabourPaymentListCreateView.as_view(),
+        name="labour-payment-list-create",
+    ),
+
+    path(
+        "sites/<int:site_id>/labour/<int:labour_id>/account/",
+        LabourAccountView.as_view(),
+        name="labour-account",
     ),
 ]

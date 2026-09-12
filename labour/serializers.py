@@ -1,109 +1,9 @@
-# from decimal import Decimal
-
-# from rest_framework import serializers
-
-# from .models import Labour, LabourEntry
-
-
-# class LabourSerializer(serializers.ModelSerializer):
-
-#     class Meta:
-#         model = Labour
-
-#         fields = [
-#             "id",
-#             "site",
-#             "name",
-#             "is_active",
-#             "created_at",
-#             "updated_at",
-#         ]
-
-#         read_only_fields = [
-#             "id",
-#             "site",
-#             "created_at",
-#             "updated_at",
-#         ]
-
-
-# class LabourEntrySerializer(serializers.ModelSerializer):
-
-#     remaining_amount = serializers.DecimalField(
-#         max_digits=12,
-#         decimal_places=2,
-#         read_only=True,
-#     )
-
-#     class Meta:
-#         model = LabourEntry
-
-#         fields = [
-#             "id",
-#             "labour",
-#             "date",
-#             "wage",
-#             "paid_amount",
-#             "remaining_amount",
-#             "created_at",
-#             "updated_at",
-#         ]
-
-#         read_only_fields = [
-#             "id",
-#             "remaining_amount",
-#             "created_at",
-#             "updated_at",
-#         ]
-
-#     def validate(self, attrs):
-#         wage = attrs.get(
-#             "wage",
-#             getattr(self.instance, "wage", None),
-#         )
-
-#         paid_amount = attrs.get(
-#             "paid_amount",
-#             getattr(self.instance, "paid_amount", Decimal("0")),
-#         )
-
-#         if wage is not None and wage < 0:
-#             raise serializers.ValidationError({
-#                 "wage": "Wage cannot be negative."
-#             })
-
-#         if paid_amount is not None and paid_amount < 0:
-#             raise serializers.ValidationError({
-#                 "paid_amount": "Paid amount cannot be negative."
-#             })
-
-#         if (
-#             wage is not None
-#             and paid_amount is not None
-#             and paid_amount > wage
-#         ):
-#             raise serializers.ValidationError({
-#                 "paid_amount": "Paid amount cannot exceed the wage."
-#             })
-
-#         return attrs
-
-#     def to_representation(self, instance):
-#         data = super().to_representation(instance)
-
-#         data["remaining_amount"] = str(
-#             instance.wage - instance.paid_amount
-#         )
-
-#         return data
-
-
 from datetime import timedelta
 
 from django.db import transaction
 from django.db.models import Q
 from rest_framework import serializers
-
+from .models import LabourPayment
 from sites.models import Site
 
 from .models import (
@@ -557,3 +457,40 @@ class LabourEntrySerializer(serializers.ModelSerializer):
         instance.save()
 
         return instance
+    
+class LabourPaymentSerializer(serializers.ModelSerializer):
+
+    labour_name = serializers.CharField(
+        source="labour.name",
+        read_only=True,
+    )
+
+    site_name = serializers.CharField(
+        source="site.name",
+        read_only=True,
+    )
+
+    class Meta:
+        model = LabourPayment
+
+        fields = [
+            "id",
+            "labour",
+            "labour_name",
+            "site",
+            "site_name",
+            "payment_date",
+            "amount",
+            "notes",
+            "created_at",
+            "updated_at",
+        ]
+
+        read_only_fields = [
+            "id",
+            "labour_name",
+            "site_name",
+            "site",
+            "created_at",
+            "updated_at",
+        ]

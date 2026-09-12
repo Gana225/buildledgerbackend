@@ -44,7 +44,6 @@ class LabourEntryAdmin(admin.ModelAdmin):
         "labour",
         "date",
         "wage",
-        "paid_amount",
         "remaining",
     ]
 

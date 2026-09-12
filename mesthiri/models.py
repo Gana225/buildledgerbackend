@@ -1,77 +1,3 @@
-# from django.db import models
-
-# from sites.models import Site
-
-
-# class Mesthiri(models.Model):
-#     site = models.ForeignKey(
-#         Site,
-#         on_delete=models.CASCADE,
-#         related_name="mesthiris",
-#     )
-
-#     name = models.CharField(max_length=150)
-
-#     is_active = models.BooleanField(default=True)
-
-#     created_at = models.DateTimeField(auto_now_add=True)
-#     updated_at = models.DateTimeField(auto_now=True)
-
-#     class Meta:
-#         ordering = ["name"]
-
-#         constraints = [
-#             models.UniqueConstraint(
-#                 fields=["site", "name"],
-#                 name="unique_mesthiri_name_per_site",
-#             )
-#         ]
-
-#     def __str__(self):
-#         return self.name
-
-
-# class MesthiriEntry(models.Model):
-#     mesthiri = models.ForeignKey(
-#         Mesthiri,
-#         on_delete=models.CASCADE,
-#         related_name="entries",
-#     )
-
-#     date = models.DateField()
-
-#     wage = models.DecimalField(
-#         max_digits=12,
-#         decimal_places=2,
-#     )
-
-#     paid_amount = models.DecimalField(
-#         max_digits=12,
-#         decimal_places=2,
-#         default=0,
-#     )
-
-#     created_at = models.DateTimeField(auto_now_add=True)
-#     updated_at = models.DateTimeField(auto_now=True)
-
-#     class Meta:
-#         ordering = ["-date", "-id"]
-
-#         constraints = [
-#             models.UniqueConstraint(
-#                 fields=["mesthiri", "date"],
-#                 name="unique_mesthiri_entry_per_day",
-#             )
-#         ]
-
-#     def __str__(self):
-#         return f"{self.mesthiri.name} - {self.date}"
-
-#     @property
-#     def remaining_amount(self):
-#         return self.wage - self.paid_amount
-
-
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -206,7 +132,6 @@ class MesthiriAssignment(models.Model):
                 "This mesthiri already has another assignment during this period."
             )
 
-
 class MesthiriEntry(models.Model):
 
     mesthiri = models.ForeignKey(
@@ -226,12 +151,6 @@ class MesthiriEntry(models.Model):
     wage = models.DecimalField(
         max_digits=12,
         decimal_places=2,
-    )
-
-    paid_amount = models.DecimalField(
-        max_digits=12,
-        decimal_places=2,
-        default=0,
     )
 
     created_at = models.DateTimeField(
@@ -257,12 +176,8 @@ class MesthiriEntry(models.Model):
                 name="unique_mesthiri_entry_per_day",
             ),
             models.CheckConstraint(
-                condition=(
-                    models.Q(wage__gte=0)
-                    & models.Q(paid_amount__gte=0)
-                    & models.Q(paid_amount__lte=models.F("wage"))
-                ),
-                name="mesthiri_entry_amounts_are_valid",
+                condition=models.Q(wage__gte=0),
+                name="mesthiri_entry_wage_is_valid",
             ),
         ]
 
@@ -273,9 +188,56 @@ class MesthiriEntry(models.Model):
             f"{self.site.name}"
         )
 
-    @property
-    def remaining_amount(self):
+
+class MesthiriPayment(models.Model):
+
+    mesthiri = models.ForeignKey(
+        Mesthiri,
+        on_delete=models.CASCADE,
+        related_name="payments",
+    )
+
+    site = models.ForeignKey(
+        Site,
+        on_delete=models.CASCADE,
+        related_name="mesthiri_payments",
+    )
+
+    payment_date = models.DateField()
+
+    amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+    )
+
+    notes = models.TextField(
+        blank=True,
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    class Meta:
+        ordering = [
+            "-payment_date",
+            "-id",
+        ]
+
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(amount__gt=0),
+                name="mesthiri_payment_amount_positive",
+            ),
+        ]
+
+    def __str__(self):
         return (
-            self.wage -
-            self.paid_amount
+            f"{self.mesthiri.name} - "
+            f"{self.site.name} - "
+            f"₹{self.amount}"
         )

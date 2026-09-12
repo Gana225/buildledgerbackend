@@ -44,7 +44,6 @@ class MesthiriEntryAdmin(admin.ModelAdmin):
         "mesthiri",
         "date",
         "wage",
-        "paid_amount",
         "remaining",
     ]
 

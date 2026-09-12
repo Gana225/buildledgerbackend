@@ -1,5 +1,7 @@
+from decimal import Decimal
 from django.db import transaction
 from django.db.models import Q
+from django.db import models
 from django.utils.dateparse import parse_date
 
 from rest_framework import generics
@@ -20,12 +22,14 @@ from .models import (
     Labour,
     LabourAssignment,
     LabourEntry,
+    LabourPayment,
 )
 
 from .serializers import (
     LabourSerializer,
     LabourAssignmentSerializer,
     LabourEntrySerializer,
+    LabourPaymentSerializer,
 )
 
 class LabourListCreateView(generics.ListCreateAPIView):
@@ -320,7 +324,277 @@ class LabourEntryDetailView(
                 "site",
             )
         )
-  
+
+
+
+class LabourPaymentListCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get_site(self, site_id, user):
+        try:
+            return Site.objects.get(
+                id=site_id,
+                user=user,
+            )
+        except Site.DoesNotExist:
+            raise NotFound("Site not found.")
+
+    def get_labour(self, labour_id, user):
+        try:
+            return Labour.objects.get(
+                id=labour_id,
+                user=user,
+            )
+        except Labour.DoesNotExist:
+            raise NotFound("Labour not found.")
+
+    def get(self, request, site_id, labour_id):
+        site = self.get_site(
+            site_id,
+            request.user,
+        )
+
+        labour = self.get_labour(
+            labour_id,
+            request.user,
+        )
+
+        payments = (
+            LabourPayment.objects
+            .filter(
+                site=site,
+                labour=labour,
+            )
+            .select_related(
+                "labour",
+                "site",
+            )
+        )
+
+        return Response(
+            LabourPaymentSerializer(
+                payments,
+                many=True,
+            ).data
+        )
+
+    @transaction.atomic
+    def post(self, request, site_id, labour_id):
+        site = self.get_site(
+            site_id,
+            request.user,
+        )
+
+        labour = self.get_labour(
+            labour_id,
+            request.user,
+        )
+
+        payment_date = request.data.get(
+            "payment_date"
+        )
+
+        amount = request.data.get(
+            "amount"
+        )
+
+        notes = request.data.get(
+            "notes",
+            "",
+        )
+
+        if not payment_date:
+            raise ValidationError({
+                "payment_date":
+                    "Payment date is required."
+            })
+
+        if amount in [None, ""]:
+            raise ValidationError({
+                "amount":
+                    "Payment amount is required."
+            })
+
+        try:
+            from decimal import Decimal
+
+            amount_value = Decimal(
+                str(amount)
+            )
+
+        except Exception:
+            raise ValidationError({
+                "amount":
+                    "Enter a valid payment amount."
+            })
+
+        if amount_value <= 0:
+            raise ValidationError({
+                "amount":
+                    "Payment amount must be greater than zero."
+            })
+
+        earned = (
+            LabourEntry.objects
+            .filter(
+                site=site,
+                labour=labour,
+            )
+            .aggregate(
+                total=models.Sum("wage")
+            )["total"]
+            or Decimal("0")
+        )
+
+        paid = (
+            LabourPayment.objects
+            .filter(
+                site=site,
+                labour=labour,
+            )
+            .aggregate(
+                total=models.Sum("amount")
+            )["total"]
+            or Decimal("0")
+        )
+
+        outstanding = earned - paid
+
+        if amount_value > outstanding:
+            raise ValidationError({
+                "amount":
+                    f"Payment cannot exceed the "
+                    f"outstanding amount of "
+                    f"₹{outstanding:.2f}."
+            })
+
+        payment = LabourPayment.objects.create(
+            labour=labour,
+            site=site,
+            payment_date=payment_date,
+            amount=amount_value,
+            notes=notes,
+        )
+
+        return Response(
+            LabourPaymentSerializer(
+                payment
+            ).data,
+            status=201,
+        )
+
+class LabourAccountView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, site_id, labour_id):
+
+        try:
+            site = Site.objects.get(
+                id=site_id,
+                user=request.user,
+            )
+        except Site.DoesNotExist:
+            raise NotFound("Site not found.")
+
+        try:
+            labour = Labour.objects.get(
+                id=labour_id,
+                user=request.user,
+            )
+        except Labour.DoesNotExist:
+            raise NotFound("Labour not found.")
+
+        contributions = (
+            LabourEntry.objects
+            .filter(
+                site=site,
+                labour=labour,
+            )
+            .order_by("-date", "-id")
+        )
+
+        payments = (
+            LabourPayment.objects
+            .filter(
+                site=site,
+                labour=labour,
+            )
+            .order_by(
+                "-payment_date",
+                "-id",
+            )
+        )
+
+        from decimal import Decimal
+
+        total_earned = sum(
+            (
+                entry.wage
+                for entry in contributions
+            ),
+            Decimal("0"),
+        )
+
+        total_paid = sum(
+            (
+                payment.amount
+                for payment in payments
+            ),
+            Decimal("0"),
+        )
+
+        total_due = (
+            total_earned -
+            total_paid
+        )
+
+        return Response({
+            "labour": {
+                "id": labour.id,
+                "name": labour.name,
+            },
+
+            "site": {
+                "id": site.id,
+                "code": site.code,
+                "name": site.name,
+            },
+
+            "summary": {
+                "worked_days": contributions.count(),
+                "total_earned": str(
+                    total_earned
+                ),
+                "total_paid": str(
+                    total_paid
+                ),
+                "total_due": str(
+                    total_due
+                ),
+            },
+
+            "contributions": [
+                {
+                    "id": entry.id,
+                    "date": entry.date,
+                    "wage": str(entry.wage),
+                }
+                for entry in contributions
+            ],
+
+            "payments": [
+                {
+                    "id": payment.id,
+                    "payment_date":
+                        payment.payment_date,
+                    "amount":
+                        str(payment.amount),
+                    "notes":
+                        payment.notes,
+                }
+                for payment in payments
+            ],
+        })
 
 class DailyWorkView(APIView):
     permission_classes = [IsAuthenticated]
@@ -347,19 +621,18 @@ class DailyWorkView(APIView):
         request,
         from_body=False,
     ):
-        if from_body:
-            date_value = request.data.get("date")
-        else:
-            date_value = request.query_params.get("date")
+        date_value = (
+            request.data.get("date")
+            if from_body
+            else request.query_params.get("date")
+        )
 
         if not date_value:
             raise ValidationError({
                 "date": "This field is required."
             })
 
-        entry_date = parse_date(
-            str(date_value)
-        )
+        entry_date = parse_date(str(date_value))
 
         if entry_date is None:
             raise ValidationError({
@@ -378,9 +651,9 @@ class DailyWorkView(APIView):
         site,
         entry_date,
     ):
-        # ==================================================
-        # TODAY'S LABOUR ENTRIES AT THIS SITE
-        # ==================================================
+        # --------------------------------------------------
+        # Today's entries at this site
+        # --------------------------------------------------
 
         labour_entries = (
             LabourEntry.objects
@@ -397,118 +670,6 @@ class DailyWorkView(APIView):
             for entry in labour_entries
         }
 
-        # ==================================================
-        # LABOUR ASSIGNED TO ANOTHER SITE
-        #
-        # This checks assignment history for the exact date.
-        # ==================================================
-
-        labour_assignment_elsewhere_ids = set(
-            LabourAssignment.objects
-            .filter(
-                labour__user=request.user,
-                start_date__lte=entry_date,
-            )
-            .filter(
-                Q(end_date__isnull=True)
-                | Q(end_date__gte=entry_date)
-            )
-            .exclude(
-                site_id=site.id
-            )
-            .values_list(
-                "labour_id",
-                flat=True,
-            )
-            .distinct()
-        )
-
-        # ==================================================
-        # LABOUR WITH DAILY ENTRY AT ANOTHER SITE
-        #
-        # This is an additional safety check.
-        # Even if assignment history is wrong/missing,
-        # someone already working at another site today
-        # will NOT appear as available here.
-        # ==================================================
-
-        labour_entry_elsewhere_ids = set(
-            LabourEntry.objects
-            .filter(
-                labour__user=request.user,
-                date=entry_date,
-            )
-            .exclude(
-                site_id=site.id
-            )
-            .values_list(
-                "labour_id",
-                flat=True,
-            )
-            .distinct()
-        )
-
-        # Combine both sources.
-        labour_unavailable_ids = (
-            labour_assignment_elsewhere_ids
-            | labour_entry_elsewhere_ids
-        )
-
-        # ==================================================
-        # AVAILABLE LABOUR
-        #
-        # Active labour:
-        #
-        #   assigned to current site -> available
-        #   assigned elsewhere       -> hidden
-        #   not assigned anywhere    -> available
-        #   already today's entry    -> Today's Work
-        # ==================================================
-
-        available_labour_queryset = (
-            Labour.objects
-            .filter(
-                user=request.user,
-                is_active=True,
-            )
-            .exclude(
-                id__in=labour_unavailable_ids
-            )
-            .order_by("name")
-        )
-
-        available_labour = []
-        today_labour = []
-
-        for labour in available_labour_queryset:
-
-            entry = labour_entry_map.get(
-                labour.id
-            )
-
-            if entry:
-                today_labour.append({
-                    "entry_id": entry.id,
-                    "labour_id": labour.id,
-                    "name": labour.name,
-                    "wage": str(entry.wage),
-                    "paid_amount": str(
-                        entry.paid_amount
-                    ),
-                    "remaining_amount": str(
-                        entry.remaining_amount
-                    ),
-                })
-            else:
-                available_labour.append({
-                    "id": labour.id,
-                    "name": labour.name,
-                })
-
-        # ==================================================
-        # TODAY'S MESTHIRI ENTRIES AT THIS SITE
-        # ==================================================
-
         mesthiri_entries = (
             MesthiriEntry.objects
             .filter(
@@ -524,11 +685,29 @@ class DailyWorkView(APIView):
             for entry in mesthiri_entries
         }
 
-        # ==================================================
-        # MESTHIRI ASSIGNED TO ANOTHER SITE
-        # ==================================================
+        # --------------------------------------------------
+        # People assigned to another site on this date
+        # --------------------------------------------------
 
-        mesthiri_assignment_elsewhere_ids = set(
+        labour_assigned_elsewhere_ids = set(
+            LabourAssignment.objects
+            .filter(
+                labour__user=request.user,
+                start_date__lte=entry_date,
+            )
+            .filter(
+                Q(end_date__isnull=True)
+                | Q(end_date__gte=entry_date)
+            )
+            .exclude(site_id=site.id)
+            .values_list(
+                "labour_id",
+                flat=True,
+            )
+            .distinct()
+        )
+
+        mesthiri_assigned_elsewhere_ids = set(
             MesthiriAssignment.objects
             .filter(
                 mesthiri__user=request.user,
@@ -538,9 +717,7 @@ class DailyWorkView(APIView):
                 Q(end_date__isnull=True)
                 | Q(end_date__gte=entry_date)
             )
-            .exclude(
-                site_id=site.id
-            )
+            .exclude(site_id=site.id)
             .values_list(
                 "mesthiri_id",
                 flat=True,
@@ -548,9 +725,23 @@ class DailyWorkView(APIView):
             .distinct()
         )
 
-        # ==================================================
-        # MESTHIRI WITH DAILY ENTRY AT ANOTHER SITE
-        # ==================================================
+        # --------------------------------------------------
+        # People already working at another site on this date
+        # --------------------------------------------------
+
+        labour_entry_elsewhere_ids = set(
+            LabourEntry.objects
+            .filter(
+                labour__user=request.user,
+                date=entry_date,
+            )
+            .exclude(site_id=site.id)
+            .values_list(
+                "labour_id",
+                flat=True,
+            )
+            .distinct()
+        )
 
         mesthiri_entry_elsewhere_ids = set(
             MesthiriEntry.objects
@@ -558,9 +749,7 @@ class DailyWorkView(APIView):
                 mesthiri__user=request.user,
                 date=entry_date,
             )
-            .exclude(
-                site_id=site.id
-            )
+            .exclude(site_id=site.id)
             .values_list(
                 "mesthiri_id",
                 flat=True,
@@ -568,16 +757,60 @@ class DailyWorkView(APIView):
             .distinct()
         )
 
+        labour_unavailable_ids = (
+            labour_assigned_elsewhere_ids
+            | labour_entry_elsewhere_ids
+        )
+
         mesthiri_unavailable_ids = (
-            mesthiri_assignment_elsewhere_ids
+            mesthiri_assigned_elsewhere_ids
             | mesthiri_entry_elsewhere_ids
         )
 
-        # ==================================================
-        # AVAILABLE MESTHIRI
-        # ==================================================
+        # --------------------------------------------------
+        # Available Labour
+        #
+        # Current-site workers and unassigned workers are
+        # available. Workers assigned/working elsewhere are
+        # hidden. Existing current-site entries go to Today.
+        # --------------------------------------------------
 
-        available_mesthiri_queryset = (
+        labour_queryset = (
+            Labour.objects
+            .filter(
+                user=request.user,
+                is_active=True,
+            )
+            .exclude(
+                id__in=labour_unavailable_ids
+            )
+            .order_by("name")
+        )
+
+        available_labour = []
+        today_labour = []
+
+        for labour in labour_queryset:
+            entry = labour_entry_map.get(labour.id)
+
+            if entry:
+                today_labour.append({
+                    "entry_id": entry.id,
+                    "labour_id": labour.id,
+                    "name": labour.name,
+                    "wage": str(entry.wage),
+                })
+            else:
+                available_labour.append({
+                    "id": labour.id,
+                    "name": labour.name,
+                })
+
+        # --------------------------------------------------
+        # Available Mesthiri
+        # --------------------------------------------------
+
+        mesthiri_queryset = (
             Mesthiri.objects
             .filter(
                 user=request.user,
@@ -592,11 +825,8 @@ class DailyWorkView(APIView):
         available_mesthiri = []
         today_mesthiri = []
 
-        for mesthiri in available_mesthiri_queryset:
-
-            entry = mesthiri_entry_map.get(
-                mesthiri.id
-            )
+        for mesthiri in mesthiri_queryset:
+            entry = mesthiri_entry_map.get(mesthiri.id)
 
             if entry:
                 today_mesthiri.append({
@@ -604,12 +834,6 @@ class DailyWorkView(APIView):
                     "mesthiri_id": mesthiri.id,
                     "name": mesthiri.name,
                     "wage": str(entry.wage),
-                    "paid_amount": str(
-                        entry.paid_amount
-                    ),
-                    "remaining_amount": str(
-                        entry.remaining_amount
-                    ),
                 })
             else:
                 available_mesthiri.append({
@@ -617,55 +841,23 @@ class DailyWorkView(APIView):
                     "name": mesthiri.name,
                 })
 
-        # ==================================================
-        # TOTALS
-        # ==================================================
+        # --------------------------------------------------
+        # Daily work totals
+        #
+        # Payments are intentionally NOT included here.
+        # --------------------------------------------------
 
         labour_total = sum(
-            entry.wage
-            for entry in labour_entries
-        )
-
-        labour_paid = sum(
-            entry.paid_amount
-            for entry in labour_entries
+            (entry.wage for entry in labour_entries),
+            Decimal("0.00"),
         )
 
         mesthiri_total = sum(
-            entry.wage
-            for entry in mesthiri_entries
+            (entry.wage for entry in mesthiri_entries),
+            Decimal("0.00"),
         )
 
-        mesthiri_paid = sum(
-            entry.paid_amount
-            for entry in mesthiri_entries
-        )
-
-        labour_remaining = (
-            labour_total - labour_paid
-        )
-
-        mesthiri_remaining = (
-            mesthiri_total - mesthiri_paid
-        )
-
-        total = (
-            labour_total
-            + mesthiri_total
-        )
-
-        paid = (
-            labour_paid
-            + mesthiri_paid
-        )
-
-        remaining = (
-            total - paid
-        )
-
-        # ==================================================
-        # RESPONSE
-        # ==================================================
+        total = labour_total + mesthiri_total
 
         return {
             "site": {
@@ -673,48 +865,15 @@ class DailyWorkView(APIView):
                 "code": site.code,
                 "name": site.name,
             },
-
             "date": entry_date,
-
-            "available_labour":
-                available_labour,
-
-            "today_labour":
-                today_labour,
-
-            "available_mesthiri":
-                available_mesthiri,
-
-            "today_mesthiri":
-                today_mesthiri,
-
+            "available_labour": available_labour,
+            "today_labour": today_labour,
+            "available_mesthiri": available_mesthiri,
+            "today_mesthiri": today_mesthiri,
             "summary": {
-                "labour_total":
-                    str(labour_total),
-
-                "labour_paid":
-                    str(labour_paid),
-
-                "labour_remaining":
-                    str(labour_remaining),
-
-                "mesthiri_total":
-                    str(mesthiri_total),
-
-                "mesthiri_paid":
-                    str(mesthiri_paid),
-
-                "mesthiri_remaining":
-                    str(mesthiri_remaining),
-
-                "total":
-                    str(total),
-
-                "paid":
-                    str(paid),
-
-                "remaining":
-                    str(remaining),
+                "labour_total": str(labour_total),
+                "mesthiri_total": str(mesthiri_total),
+                "total": str(total),
             },
         }
 
@@ -766,18 +925,12 @@ class DailyWorkView(APIView):
             [],
         )
 
-        if not isinstance(
-            labour_data,
-            list,
-        ):
+        if not isinstance(labour_data, list):
             raise ValidationError({
                 "labour": "Must be a list."
             })
 
-        if not isinstance(
-            mesthiri_data,
-            list,
-        ):
+        if not isinstance(mesthiri_data, list):
             raise ValidationError({
                 "mesthiri": "Must be a list."
             })
@@ -791,9 +944,7 @@ class DailyWorkView(APIView):
             for item in labour_data
         ]
 
-        if len(labour_ids) != len(
-            set(labour_ids)
-        ):
+        if len(labour_ids) != len(set(labour_ids)):
             raise ValidationError({
                 "labour":
                     "The same labour cannot be added twice."
@@ -804,9 +955,7 @@ class DailyWorkView(APIView):
             for item in mesthiri_data
         ]
 
-        if len(mesthiri_ids) != len(
-            set(mesthiri_ids)
-        ):
+        if len(mesthiri_ids) != len(set(mesthiri_ids)):
             raise ValidationError({
                 "mesthiri":
                     "The same mesthiri cannot be added twice."
@@ -819,13 +968,11 @@ class DailyWorkView(APIView):
         saved_labour_ids = []
 
         for item in labour_data:
-
             labour_id = item.get("labour")
 
             if not labour_id:
                 raise ValidationError({
-                    "labour":
-                        "Labour ID is required."
+                    "labour": "Labour ID is required."
                 })
 
             try:
@@ -839,10 +986,8 @@ class DailyWorkView(APIView):
                         f"Labour {labour_id} does not exist."
                 })
 
-            # ----------------------------------------------
-            # Prevent adding someone assigned elsewhere.
-            # ----------------------------------------------
-
+            # A worker assigned to another site cannot be
+            # added here on the same date.
             assignment_elsewhere = (
                 LabourAssignment.objects
                 .filter(
@@ -853,9 +998,7 @@ class DailyWorkView(APIView):
                     Q(end_date__isnull=True)
                     | Q(end_date__gte=entry_date)
                 )
-                .exclude(
-                    site_id=site.id
-                )
+                .exclude(site_id=site.id)
                 .select_related("site")
                 .first()
             )
@@ -868,20 +1011,14 @@ class DailyWorkView(APIView):
                         f"on {entry_date}."
                 })
 
-            # ----------------------------------------------
-            # Prevent adding someone who already has a
-            # daily entry at another site.
-            # ----------------------------------------------
-
+            # A worker can only have one daily work entry.
             entry_elsewhere = (
                 LabourEntry.objects
                 .filter(
                     labour=labour,
                     date=entry_date,
                 )
-                .exclude(
-                    site_id=site.id
-                )
+                .exclude(site_id=site.id)
                 .select_related("site")
                 .first()
             )
@@ -896,28 +1033,18 @@ class DailyWorkView(APIView):
 
             wage = item.get("wage")
 
-            paid_amount = item.get(
-                "paid_amount",
-                0,
-            )
-
-            if wage is None:
+            if wage is None or str(wage).strip() == "":
                 raise ValidationError({
                     "wage":
-                        f"Wage is required for "
-                        f"{labour.name}."
+                        f"Wage is required for {labour.name}."
                 })
 
             try:
-                wage_value = float(wage)
-                paid_value = float(
-                    paid_amount or 0
-                )
-            except (TypeError, ValueError):
+                wage_value = Decimal(str(wage))
+            except (TypeError, ValueError, ArithmeticError):
                 raise ValidationError({
                     "wage":
-                        f"Invalid wage or payment for "
-                        f"{labour.name}."
+                        f"Invalid wage for {labour.name}."
                 })
 
             if wage_value < 0:
@@ -926,24 +1053,6 @@ class DailyWorkView(APIView):
                         f"Wage cannot be negative for "
                         f"{labour.name}."
                 })
-
-            if paid_value < 0:
-                raise ValidationError({
-                    "paid_amount":
-                        f"Paid amount cannot be negative "
-                        f"for {labour.name}."
-                })
-
-            if paid_value > wage_value:
-                raise ValidationError({
-                    "paid_amount":
-                        f"Paid amount cannot be greater "
-                        f"than wage for {labour.name}."
-                })
-
-            # ----------------------------------------------
-            # Existing entry at current site
-            # ----------------------------------------------
 
             existing_entry = (
                 LabourEntry.objects
@@ -955,7 +1064,6 @@ class DailyWorkView(APIView):
             )
 
             if existing_entry:
-
                 if existing_entry.site_id != site.id:
                     raise ValidationError({
                         "labour":
@@ -963,32 +1071,24 @@ class DailyWorkView(APIView):
                             f"a daily entry at another site."
                     })
 
-                existing_entry.wage = wage
-                existing_entry.paid_amount = (
-                    paid_amount
-                )
+                existing_entry.wage = wage_value
                 existing_entry.save(
                     update_fields=[
                         "wage",
-                        "paid_amount",
                         "updated_at",
                     ]
                 )
-
             else:
                 LabourEntry.objects.create(
                     labour=labour,
                     site=site,
                     date=entry_date,
-                    wage=wage,
-                    paid_amount=paid_amount,
+                    wage=wage_value,
                 )
 
-            saved_labour_ids.append(
-                labour.id
-            )
+            saved_labour_ids.append(labour.id)
 
-        # Remove labour removed from today's list.
+        # Remove people removed from today's list.
         LabourEntry.objects.filter(
             site=site,
             date=entry_date,
@@ -1003,10 +1103,7 @@ class DailyWorkView(APIView):
         saved_mesthiri_ids = []
 
         for item in mesthiri_data:
-
-            mesthiri_id = item.get(
-                "mesthiri"
-            )
+            mesthiri_id = item.get("mesthiri")
 
             if not mesthiri_id:
                 raise ValidationError({
@@ -1026,10 +1123,6 @@ class DailyWorkView(APIView):
                         f"does not exist."
                 })
 
-            # ----------------------------------------------
-            # Prevent adding someone assigned elsewhere.
-            # ----------------------------------------------
-
             assignment_elsewhere = (
                 MesthiriAssignment.objects
                 .filter(
@@ -1040,9 +1133,7 @@ class DailyWorkView(APIView):
                     Q(end_date__isnull=True)
                     | Q(end_date__gte=entry_date)
                 )
-                .exclude(
-                    site_id=site.id
-                )
+                .exclude(site_id=site.id)
                 .select_related("site")
                 .first()
             )
@@ -1055,20 +1146,13 @@ class DailyWorkView(APIView):
                         f"on {entry_date}."
                 })
 
-            # ----------------------------------------------
-            # Prevent adding someone who already has a
-            # daily entry at another site.
-            # ----------------------------------------------
-
             entry_elsewhere = (
                 MesthiriEntry.objects
                 .filter(
                     mesthiri=mesthiri,
                     date=entry_date,
                 )
-                .exclude(
-                    site_id=site.id
-                )
+                .exclude(site_id=site.id)
                 .select_related("site")
                 .first()
             )
@@ -1083,12 +1167,7 @@ class DailyWorkView(APIView):
 
             wage = item.get("wage")
 
-            paid_amount = item.get(
-                "paid_amount",
-                0,
-            )
-
-            if wage is None:
+            if wage is None or str(wage).strip() == "":
                 raise ValidationError({
                     "wage":
                         f"Wage is required for "
@@ -1096,14 +1175,11 @@ class DailyWorkView(APIView):
                 })
 
             try:
-                wage_value = float(wage)
-                paid_value = float(
-                    paid_amount or 0
-                )
-            except (TypeError, ValueError):
+                wage_value = Decimal(str(wage))
+            except (TypeError, ValueError, ArithmeticError):
                 raise ValidationError({
                     "wage":
-                        f"Invalid wage or payment for "
+                        f"Invalid wage for "
                         f"{mesthiri.name}."
                 })
 
@@ -1113,24 +1189,6 @@ class DailyWorkView(APIView):
                         f"Wage cannot be negative for "
                         f"{mesthiri.name}."
                 })
-
-            if paid_value < 0:
-                raise ValidationError({
-                    "paid_amount":
-                        f"Paid amount cannot be negative "
-                        f"for {mesthiri.name}."
-                })
-
-            if paid_value > wage_value:
-                raise ValidationError({
-                    "paid_amount":
-                        f"Paid amount cannot be greater "
-                        f"than wage for {mesthiri.name}."
-                })
-
-            # ----------------------------------------------
-            # Existing entry
-            # ----------------------------------------------
 
             existing_entry = (
                 MesthiriEntry.objects
@@ -1142,7 +1200,6 @@ class DailyWorkView(APIView):
             )
 
             if existing_entry:
-
                 if existing_entry.site_id != site.id:
                     raise ValidationError({
                         "mesthiri":
@@ -1150,43 +1207,30 @@ class DailyWorkView(APIView):
                             f"a daily entry at another site."
                     })
 
-                existing_entry.wage = wage
-                existing_entry.paid_amount = (
-                    paid_amount
-                )
-
+                existing_entry.wage = wage_value
                 existing_entry.save(
                     update_fields=[
                         "wage",
-                        "paid_amount",
                         "updated_at",
                     ]
                 )
-
             else:
                 MesthiriEntry.objects.create(
                     mesthiri=mesthiri,
                     site=site,
                     date=entry_date,
-                    wage=wage,
-                    paid_amount=paid_amount,
+                    wage=wage_value,
                 )
 
-            saved_mesthiri_ids.append(
-                mesthiri.id
-            )
+            saved_mesthiri_ids.append(mesthiri.id)
 
-        # Remove mesthiri removed from today's list.
+        # Remove people removed from today's list.
         MesthiriEntry.objects.filter(
             site=site,
             date=entry_date,
         ).exclude(
             mesthiri_id__in=saved_mesthiri_ids
         ).delete()
-
-        # ==================================================
-        # RETURN FINAL STATE
-        # ==================================================
 
         return Response(
             self.build_response(

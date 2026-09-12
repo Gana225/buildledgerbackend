@@ -1,94 +1,6 @@
-# from django.db import models
-
-# from sites.models import Site
-
-
-# class Labour(models.Model):
-#     site = models.ForeignKey(
-#         Site,
-#         on_delete=models.CASCADE,
-#         related_name="labours",
-#     )
-
-#     name = models.CharField(
-#         max_length=150,
-#     )
-
-#     is_active = models.BooleanField(
-#         default=True,
-#     )
-
-#     created_at = models.DateTimeField(
-#         auto_now_add=True,
-#     )
-
-#     updated_at = models.DateTimeField(
-#         auto_now=True,
-#     )
-
-#     class Meta:
-#         ordering = ["name"]
-
-#         constraints = [
-#             models.UniqueConstraint(
-#                 fields=["site", "name"],
-#                 name="unique_labour_name_per_site",
-#             )
-#         ]
-
-#     def __str__(self):
-#         return self.name
-
-
-# class LabourEntry(models.Model):
-#     labour = models.ForeignKey(
-#         Labour,
-#         on_delete=models.CASCADE,
-#         related_name="entries",
-#     )
-
-#     date = models.DateField()
-
-#     wage = models.DecimalField(
-#         max_digits=12,
-#         decimal_places=2,
-#     )
-
-#     paid_amount = models.DecimalField(
-#         max_digits=12,
-#         decimal_places=2,
-#         default=0,
-#     )
-
-#     created_at = models.DateTimeField(
-#         auto_now_add=True,
-#     )
-
-#     updated_at = models.DateTimeField(
-#         auto_now=True,
-#     )
-
-#     class Meta:
-#         ordering = ["-date", "-id"]
-
-#         constraints = [
-#             models.UniqueConstraint(
-#                 fields=["labour", "date"],
-#                 name="unique_labour_entry_per_day",
-#             )
-#         ]
-
-#     def __str__(self):
-#         return f"{self.labour.name} - {self.date}"
-
-#     @property
-#     def remaining_amount(self):
-#         return self.wage - self.paid_amount
-
 from django.conf import settings
-from django.db import models
 from django.core.exceptions import ValidationError
-
+from django.db import models
 
 from sites.models import Site
 
@@ -101,21 +13,13 @@ class Labour(models.Model):
         related_name="labours",
     )
 
-    name = models.CharField(
-        max_length=150,
-    )
+    name = models.CharField(max_length=150)
 
-    is_active = models.BooleanField(
-        default=True,
-    )
+    is_active = models.BooleanField(default=True)
 
-    created_at = models.DateTimeField(
-        auto_now_add=True,
-    )
+    created_at = models.DateTimeField(auto_now_add=True)
 
-    updated_at = models.DateTimeField(
-        auto_now=True,
-    )
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ["name"]
@@ -152,13 +56,9 @@ class LabourAssignment(models.Model):
         blank=True,
     )
 
-    created_at = models.DateTimeField(
-        auto_now_add=True,
-    )
+    created_at = models.DateTimeField(auto_now_add=True)
 
-    updated_at = models.DateTimeField(
-        auto_now=True,
-    )
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = [
@@ -192,16 +92,12 @@ class LabourAssignment(models.Model):
             f"{self.site.name} - "
             f"{self.start_date} onwards"
         )
-    
+
     def clean(self):
 
-        if (
-            self.end_date
-            and self.end_date < self.start_date
-        ):
+        if self.end_date and self.end_date < self.start_date:
             raise ValidationError({
-                "end_date":
-                    "End date cannot be before start date."
+                "end_date": "End date cannot be before start date."
             })
 
         overlapping = LabourAssignment.objects.filter(
@@ -220,15 +116,11 @@ class LabourAssignment(models.Model):
         else:
             overlapping = overlapping.filter(
                 models.Q(end_date__isnull=True)
-                | models.Q(
-                    end_date__gte=self.start_date
-                )
+                | models.Q(end_date__gte=self.start_date)
             )
 
         if self.pk:
-            overlapping = overlapping.exclude(
-                pk=self.pk
-            )
+            overlapping = overlapping.exclude(pk=self.pk)
 
         if overlapping.exists():
             raise ValidationError(
@@ -258,12 +150,6 @@ class LabourEntry(models.Model):
         decimal_places=2,
     )
 
-    paid_amount = models.DecimalField(
-        max_digits=12,
-        decimal_places=2,
-        default=0,
-    )
-
     created_at = models.DateTimeField(
         auto_now_add=True,
     )
@@ -287,12 +173,8 @@ class LabourEntry(models.Model):
                 name="unique_labour_entry_per_day",
             ),
             models.CheckConstraint(
-                condition=(
-                    models.Q(wage__gte=0)
-                    & models.Q(paid_amount__gte=0)
-                    & models.Q(paid_amount__lte=models.F("wage"))
-                ),
-                name="labour_entry_amounts_are_valid",
+                condition=models.Q(wage__gte=0),
+                name="labour_entry_wage_is_valid",
             ),
         ]
 
@@ -303,9 +185,56 @@ class LabourEntry(models.Model):
             f"{self.site.name}"
         )
 
-    @property
-    def remaining_amount(self):
+
+class LabourPayment(models.Model):
+
+    labour = models.ForeignKey(
+        Labour,
+        on_delete=models.CASCADE,
+        related_name="payments",
+    )
+
+    site = models.ForeignKey(
+        Site,
+        on_delete=models.CASCADE,
+        related_name="labour_payments",
+    )
+
+    payment_date = models.DateField()
+
+    amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+    )
+
+    notes = models.TextField(
+        blank=True,
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    class Meta:
+        ordering = [
+            "-payment_date",
+            "-id",
+        ]
+
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(amount__gt=0),
+                name="labour_payment_amount_positive",
+            ),
+        ]
+
+    def __str__(self):
         return (
-            self.wage -
-            self.paid_amount
+            f"{self.labour.name} - "
+            f"{self.site.name} - "
+            f"₹{self.amount}"
         )

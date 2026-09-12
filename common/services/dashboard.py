@@ -1,10 +1,10 @@
 from decimal import Decimal
 
 from django.db.models import Sum
-from django.db.models.functions import TruncDate, TruncMonth
+from django.db.models.functions import TruncMonth
 
-from labour.models import LabourEntry
-from mesthiri.models import MesthiriEntry
+from labour.models import LabourEntry, LabourPayment
+from mesthiri.models import MesthiriEntry, MesthiriPayment
 from materials.models import Material
 from sites.models import Site
 
@@ -22,31 +22,19 @@ def get_site_dashboard(site, start_date=None, end_date=None):
     )
 
     labour_queryset = LabourEntry.objects.filter(site=site)
-
     mesthiri_queryset = MesthiriEntry.objects.filter(site=site)
-
-    material_queryset = Material.objects.filter(
-        site=site
-    )
+    material_queryset = Material.objects.filter(site=site)
 
     if start_date:
-        labour_queryset = labour_queryset.filter(
-            date__gte=start_date
-        )
-        mesthiri_queryset = mesthiri_queryset.filter(
-            date__gte=start_date
-        )
+        labour_queryset = labour_queryset.filter(date__gte=start_date)
+        mesthiri_queryset = mesthiri_queryset.filter(date__gte=start_date)
         material_queryset = material_queryset.filter(
             purchase_date__gte=start_date
         )
 
     if end_date:
-        labour_queryset = labour_queryset.filter(
-            date__lte=end_date
-        )
-        mesthiri_queryset = mesthiri_queryset.filter(
-            date__lte=end_date
-        )
+        labour_queryset = labour_queryset.filter(date__lte=end_date)
+        mesthiri_queryset = mesthiri_queryset.filter(date__lte=end_date)
         material_queryset = material_queryset.filter(
             purchase_date__lte=end_date
         )
@@ -54,48 +42,36 @@ def get_site_dashboard(site, start_date=None, end_date=None):
     # -------------------------
     # Daily labour totals
     # -------------------------
-
     labour_daily = (
         labour_queryset
         .values("date")
-        .annotate(
-            total=Sum("wage"),
-            paid=Sum("paid_amount"),
-        )
+        .annotate(total=Sum("wage"))
         .order_by("date")
     )
 
     # -------------------------
     # Daily mesthiri totals
     # -------------------------
-
     mesthiri_daily = (
         mesthiri_queryset
         .values("date")
-        .annotate(
-            total=Sum("wage"),
-            paid=Sum("paid_amount"),
-        )
+        .annotate(total=Sum("wage"))
         .order_by("date")
     )
 
     # -------------------------
     # Daily material totals
     # -------------------------
-
     material_daily = (
         material_queryset
         .values("purchase_date")
-        .annotate(
-            total=Sum("price"),
-        )
+        .annotate(total=Sum("price"))
         .order_by("purchase_date")
     )
 
     # -------------------------
     # Monthly spending
     # -------------------------
-
     labour_monthly = (
         labour_queryset
         .annotate(month=TruncMonth("date"))
@@ -145,23 +121,16 @@ def get_site_dashboard(site, start_date=None, end_date=None):
         ],
 
         "labour_daily": list(labour_daily),
-
         "mesthiri_daily": list(mesthiri_daily),
-
         "material_daily": list(material_daily),
-
         "labour_monthly": list(labour_monthly),
-
         "mesthiri_monthly": list(mesthiri_monthly),
-
         "material_monthly": list(material_monthly),
     }
 
 
 def get_main_dashboard(user, start_date=None, end_date=None):
-    sites = Site.objects.filter(
-        user=user
-    ).order_by("id")
+    sites = Site.objects.filter(user=user).order_by("id")
 
     site_data = []
 

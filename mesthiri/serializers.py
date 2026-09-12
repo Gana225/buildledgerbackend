@@ -3,7 +3,7 @@ from datetime import timedelta
 from django.db import transaction
 from django.db.models import Q
 from rest_framework import serializers
-
+from .models import MesthiriPayment
 from .models import Mesthiri, MesthiriAssignment, MesthiriEntry
 
 
@@ -137,3 +137,41 @@ class MesthiriEntrySerializer(serializers.ModelSerializer):
             setattr(instance, key, value)
         instance.save()
         return instance
+
+
+class MesthiriPaymentSerializer(serializers.ModelSerializer):
+
+    mesthiri_name = serializers.CharField(
+        source="mesthiri.name",
+        read_only=True,
+    )
+
+    site_name = serializers.CharField(
+        source="site.name",
+        read_only=True,
+    )
+
+    class Meta:
+        model = MesthiriPayment
+
+        fields = [
+            "id",
+            "mesthiri",
+            "mesthiri_name",
+            "site",
+            "site_name",
+            "payment_date",
+            "amount",
+            "notes",
+            "created_at",
+            "updated_at",
+        ]
+
+        read_only_fields = [
+            "id",
+            "mesthiri_name",
+            "site_name",
+            "site",
+            "created_at",
+            "updated_at",
+        ]

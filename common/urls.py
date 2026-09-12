@@ -4,6 +4,7 @@ from .views import (
     SiteAccountingView,
     MainDashboardView,
     SiteDashboardView,
+    SiteWorkerAccountsView,
 )
 
 
@@ -24,5 +25,11 @@ urlpatterns = [
         "sites/<int:site_id>/dashboard/",
         SiteDashboardView.as_view(),
         name="site-dashboard",
+    ),
+    
+    path(
+        "sites/<int:site_id>/worker-accounts/",
+        SiteWorkerAccountsView.as_view(),
+        name="site-worker-accounts",
     ),
 ]
