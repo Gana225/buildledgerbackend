@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Labour, LabourAssignment, LabourEntry
+from .models import Labour, LabourAssignment, LabourEntry,DailySiteWork
 
 
 @admin.register(Labour)
@@ -60,3 +60,7 @@ class LabourEntryAdmin(admin.ModelAdmin):
     )
     def remaining(self, obj):
         return obj.wage - obj.paid_amount
+    
+@admin.register(DailySiteWork)
+class DailySiteWorkAdmin(admin.ModelAdmin):
+    list_display = ["site", "date", "work_description"]

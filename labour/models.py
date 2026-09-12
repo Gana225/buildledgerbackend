@@ -1,7 +1,6 @@
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
-
 from sites.models import Site
 
 
@@ -238,3 +237,27 @@ class LabourPayment(models.Model):
             f"{self.site.name} - "
             f"₹{self.amount}"
         )
+    
+class DailySiteWork(models.Model):
+    site = models.ForeignKey(
+        Site,
+        on_delete=models.CASCADE,
+        related_name="daily_work_records",
+    )
+    date = models.DateField()
+    work_description = models.TextField(blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-date"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["site", "date"],
+                name="unique_daily_site_work",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.site.code} - {self.date}"

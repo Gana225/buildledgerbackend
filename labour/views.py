@@ -23,6 +23,7 @@ from .models import (
     LabourAssignment,
     LabourEntry,
     LabourPayment,
+    DailySiteWork
 )
 
 from .serializers import (
@@ -512,6 +513,17 @@ class LabourAccountView(APIView):
             )
             .order_by("-date", "-id")
         )
+        
+        daily_work_map = {
+            item.date: item.work_description
+            for item in DailySiteWork.objects.filter(
+                site=site,
+                date__in=[
+                    contribution.date
+                    for contribution in contributions
+                ],
+            )
+        }
 
         payments = (
             LabourPayment.objects
@@ -547,7 +559,7 @@ class LabourAccountView(APIView):
             total_earned -
             total_paid
         )
-
+        
         return Response({
             "labour": {
                 "id": labour.id,
@@ -573,11 +585,16 @@ class LabourAccountView(APIView):
                 ),
             },
 
+
             "contributions": [
                 {
                     "id": entry.id,
                     "date": entry.date,
                     "wage": str(entry.wage),
+                    "work_description": daily_work_map.get(
+                        entry.date,
+                        "",
+                    ),
                 }
                 for entry in contributions
             ],
@@ -654,6 +671,11 @@ class DailyWorkView(APIView):
         # --------------------------------------------------
         # Today's entries at this site
         # --------------------------------------------------
+        
+        daily_site_work, _ = DailySiteWork.objects.get_or_create(
+            site=site,
+            date=entry_date,
+        )
 
         labour_entries = (
             LabourEntry.objects
@@ -866,6 +888,7 @@ class DailyWorkView(APIView):
                 "name": site.name,
             },
             "date": entry_date,
+            "work_description": daily_site_work.work_description,
             "available_labour": available_labour,
             "today_labour": today_labour,
             "available_mesthiri": available_mesthiri,
@@ -914,6 +937,10 @@ class DailyWorkView(APIView):
             request,
             from_body=True,
         )
+        
+        work_description = str(
+            request.data.get("work_description", "")
+        ).strip()
 
         labour_data = request.data.get(
             "labour",
@@ -1231,7 +1258,20 @@ class DailyWorkView(APIView):
         ).exclude(
             mesthiri_id__in=saved_mesthiri_ids
         ).delete()
+        
+        daily_site_work, _ = DailySiteWork.objects.get_or_create(
+            site=site,
+            date=entry_date,
+        )
 
+        daily_site_work.work_description = work_description
+        daily_site_work.save(
+            update_fields=[
+                "work_description",
+                "updated_at",
+            ]
+)
+        
         return Response(
             self.build_response(
                 request,

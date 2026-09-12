@@ -8,7 +8,7 @@ from django.db import models, transaction
 from sites.models import Site
 from .models import Mesthiri, MesthiriAssignment, MesthiriEntry,MesthiriPayment
 from .serializers import MesthiriAssignmentSerializer, MesthiriEntrySerializer, MesthiriSerializer, MesthiriPaymentSerializer
-
+from labour.models import DailySiteWork
 
 class MesthiriListCreateView(generics.ListCreateAPIView):
     serializer_class = MesthiriSerializer
@@ -300,6 +300,17 @@ class MesthiriAccountView(APIView):
             )
             .order_by("-date", "-id")
         )
+        
+        daily_work_map = {
+            item.date: item.work_description
+            for item in DailySiteWork.objects.filter(
+                site=site,
+                date__in=[
+                    contribution.date
+                    for contribution in contributions
+                ],
+            )
+        }
 
         payments = (
             MesthiriPayment.objects
@@ -366,6 +377,10 @@ class MesthiriAccountView(APIView):
                     "id": entry.id,
                     "date": entry.date,
                     "wage": str(entry.wage),
+                    "work_description": daily_work_map.get(
+                        entry.date,
+                        "",
+                    ),
                 }
                 for entry in contributions
             ],
