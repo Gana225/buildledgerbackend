@@ -1,4 +1,4 @@
-from django.db import models
+from django.db import models, transaction
 
 from sites.models import Site
 
@@ -54,23 +54,27 @@ class Material(models.Model):
         ]
 
     def save(self, *args, **kwargs):
-
         if not self.serial_number:
-            last_material = (
-                Material.objects
-                .filter(site=self.site)
-                .order_by("-serial_number")
-                .first()
-            )
-
-            if last_material:
-                self.serial_number = (
-                    last_material.serial_number + 1
+            # 2. Use atomic transaction block to lock the operation
+            with transaction.atomic():
+                # 3. Lock the query using select_for_update()
+                last_material = (
+                    Material.objects
+                    .select_for_update()  # <-- Crucial line: locks the rows
+                    .filter(site=self.site)
+                    .order_by("-serial_number")
+                    .first()
                 )
-            else:
-                self.serial_number = 1
 
-        super().save(*args, **kwargs)
+                if last_material:
+                    self.serial_number = last_material.serial_number + 1
+                else:
+                    self.serial_number = 1
+
+                super().save(*args, **kwargs)
+        else:
+            # If serial_number already exists (like during an update), save normally
+            super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.serial_number} - {self.name}"
